@@ -1,0 +1,132 @@
+# Ampliación de CampusCloud Unidad II.
+# Levanta los nuevos gestores individualmente para no duplicar los
+# contenedores antiguos de SQL Server, PostgreSQL y pgAdmin.
+name: campuscloud-unidad-ii
+
+services:
+  # Configuración conservada de la Unidad I.
+  postgres-cloud:
+    image: postgres:16-bookworm
+    container_name: campuscloud-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Debes definir POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-campuscloude}
+    ports:
+      - "54320:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - campuscloud_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  pgadmin:
+    image: dpage/pgadmin4:6.17
+    container_name: campuscloud-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?Debes definir PGADMIN_DEFAULT_PASSWORD}
+    ports:
+      - "8082:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - campuscloud_net
+    depends_on:
+      postgres-cloud:
+        condition: service_healthy
+
+  sql-server-cloud:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: campuscloud-sqlserver
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: ${ACCEPT_EULA:-Y}
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Debes definir MSSQL_SA_PASSWORD}
+    ports:
+      - "${MSSQL_PORT:-14033}:1433"
+    volumes:
+      - sql_data:/var/opt/mssql
+    networks:
+      - campuscloud_net
+
+  # MongoDB documental: contenedor, puerto y volumen nuevos.
+  mongodb:
+    image: mongo:7
+    container_name: campuscloud-u2-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?Debes definir MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Debes definir MONGO_ROOT_PASSWORD}
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-28018}:27017"
+    volumes:
+      - mongo_u2_data:/data/db
+      - ../02-mongodb:/practicas/mongodb:ro
+    networks:
+      - campuscloud_net
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({ping:1})"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # Neo4j separado del contenedor de clase para no alterar sus datos.
+  neo4j:
+    image: neo4j:5-community
+    container_name: campuscloud-u2-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?Debes definir NEO4J_PASSWORD}"
+    ports:
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-7475}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-7688}:7687"
+    volumes:
+      - neo4j_u2_data:/data
+      - ../03-neo4j:/practicas/neo4j:ro
+    networks:
+      - campuscloud_net
+
+  # Un solo nodo de Cassandra: laboratorio, no cluster de producción.
+  cassandra:
+    image: cassandra:5.0
+    container_name: campuscloud-u2-cassandra
+    restart: unless-stopped
+    environment:
+      CASSANDRA_CLUSTER_NAME: CampusCloud-Unidad-II
+      CASSANDRA_DC: datacenter1
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    ports:
+      - "127.0.0.1:${CASSANDRA_PORT:-9042}:9042"
+    volumes:
+      - cassandra_u2_data:/var/lib/cassandra
+      - ../04-columnas-anchas:/practicas/cassandra:ro
+    networks:
+      - campuscloud_net
+
+volumes:
+  postgres_data:
+    name: ${POSTGRES_VOLUME:-campuscloud_postgres_data}
+  pgadmin_data:
+    name: ${PGADMIN_VOLUME:-campuscloud_pgadmin_data}
+  sql_data:
+    name: ${SQLSERVER_VOLUME:-campuscloud_sqlserver_data}
+  mongo_u2_data:
+    name: ${MONGO_VOLUME:-campuscloud_u2_mongodb_data}
+  neo4j_u2_data:
+    name: ${NEO4J_VOLUME:-campuscloud_u2_neo4j_data}
+  cassandra_u2_data:
+    name: ${CASSANDRA_VOLUME:-campuscloud_u2_cassandra_data}
+
+networks:
+  campuscloud_net:
+    external: true
+    name: ${DOCKER_NETWORK:-campus-network}
